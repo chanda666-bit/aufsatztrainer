@@ -15,6 +15,7 @@ const welcomeTitle = el('welcomeTitle');
 const adminPanel = el('adminPanel');
 const studentPanel = el('studentPanel');
 const studentSelect = el('studentSelect');
+const adminStudentList = el('adminStudentList');
 const themeSuggestions = el('themeSuggestions');
 const essayTitle = el('essayTitle');
 const essayContent = el('essayContent');
@@ -83,6 +84,72 @@ function clearEditor() {
   statusEl.textContent = 'Quest-Feld geleert.';
   resetAnalysis();
 }
+
+function renderAdminStudents() {
+  if (!adminStudentList || state.role !== 'admin') return;
+
+  adminStudentList.innerHTML = state.students.length
+    ? state.students.map(student => `
+      <div class="admin-student-card">
+        <div class="admin-student-main">
+          <strong>${escapeHtml(student.name)}</strong>
+          <div class="small">${escapeHtml(student.grade)} • PIN: ${escapeHtml(student.pin || '1234')}</div>
+          <div class="small">${(student.interests || []).join(' • ') || 'Keine Themen'}</div>
+        </div>
+        <div class="admin-student-actions">
+          <button class="small-action edit-student-btn" data-id="${student.id}">Bearbeiten</button>
+          <button class="small-action delete-student-btn" data-id="${student.id}">Löschen</button>
+        </div>
+      </div>
+    `).join('')
+    : '<p class="detail-empty">Noch keine Schüler vorhanden.</p>';
+
+  adminStudentList.querySelectorAll('.edit-student-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const id = Number(btn.dataset.id);
+      const student = state.students.find(s => s.id === id);
+      if (!student) return;
+
+      el('newStudentName').value = student.name || '';
+      el('newStudentGrade').value = student.grade || '5. Klasse';
+      el('newStudentPin').value = student.pin || '1234';
+
+      document.querySelectorAll('.chip').forEach(chip => {
+        chip.classList.toggle('active', (student.interests || []).includes(chip.dataset.interest));
+      });
+
+      el('createStudentBtn').textContent = 'Schüler aktualisieren';
+      el('createStudentBtn').dataset.editId = String(student.id);
+      statusEl.textContent = `Bearbeite ${student.name}.`;
+    });
+  });
+
+  adminStudentList.querySelectorAll('.delete-student-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const id = Number(btn.dataset.id);
+      const student = state.students.find(s => s.id === id);
+      if (!student) return;
+
+      const ok = confirm(`Schüler "${student.name}" wirklich löschen? Alle Aufsätze dieses Schülers werden ebenfalls gelöscht.`);
+      if (!ok) return;
+
+      try {
+        await api(`/api/admin/students/${id}`, { method: 'DELETE' });
+        statusEl.textContent = `${student.name} wurde gelöscht.`;
+        state.students = await api('/api/admin/students');
+        studentSelect.innerHTML = state.students.map(s => `<option value="${s.id}">${escapeHtml(s.name)} (${escapeHtml(s.grade)})</option>`).join('');
+        renderAdminStudents();
+        clearEditor();
+        await loadStats();
+        await loadHistory();
+        await loadThemes();
+      } catch (error) {
+        statusEl.textContent = error.message;
+      }
+    });
+  });
+}
+
 
 function renderThemes(items) {
   const list = (items || []).map((item, index) => ({
@@ -271,18 +338,39 @@ el('logoutBtn').addEventListener('click', () => {
 
 el('createStudentBtn').addEventListener('click', async () => {
   try {
-    const student = await api('/api/admin/students', {
-      method: 'POST',
-      body: JSON.stringify({
-        name: el('newStudentName').value,
-        grade: el('newStudentGrade').value,
-        pin: el('newStudentPin').value,
-        interests: getSelectedInterests()
-      })
-    });
-    statusEl.textContent = `Profil für ${student.name} angelegt.`;
+    const editId = el('createStudentBtn').dataset.editId;
+    const payload = {
+      name: el('newStudentName').value,
+      grade: el('newStudentGrade').value,
+      pin: el('newStudentPin').value,
+      interests: getSelectedInterests()
+    };
+
+    let student;
+    if (editId) {
+      student = await api(`/api/admin/students/${editId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload)
+      });
+      statusEl.textContent = `${student.name} wurde aktualisiert.`;
+    } else {
+      student = await api('/api/admin/students', {
+        method: 'POST',
+        body: JSON.stringify(payload)
+      });
+      statusEl.textContent = `Profil für ${student.name} angelegt.`;
+    }
+
     state.students = await api('/api/admin/students');
     studentSelect.innerHTML = state.students.map(s => `<option value="${s.id}">${escapeHtml(s.name)} (${escapeHtml(s.grade)})</option>`).join('');
+    renderAdminStudents();
+
+    el('newStudentName').value = '';
+    el('newStudentGrade').value = '5. Klasse';
+    el('newStudentPin').value = '1234';
+    el('createStudentBtn').textContent = 'Profil anlegen';
+    delete el('createStudentBtn').dataset.editId;
+    document.querySelectorAll('.chip').forEach(chip => chip.classList.remove('active'));
   } catch (error) {
     statusEl.textContent = error.message;
   }

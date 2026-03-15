@@ -8,6 +8,8 @@ import OpenAI from 'openai';
 import {
   ensureSchema,
   createStudent,
+  updateStudent,
+  deleteStudent,
   getStudentById,
   getStudentByNameAndPin,
   getEssaysByStudent,
@@ -327,6 +329,61 @@ app.post('/api/essays', requireAuth, async (req, res) => {
 app.get('/api/admin/students', requireAdmin, async (_req, res) => {
   const rows = await listAllStudentsForAdmin();
   res.json(rows);
+});
+
+app.get('/api/admin/students', requireAdmin, async (_req, res) => {
+  const students = await listAllStudentsForAdmin();
+  res.json(students);
+});
+
+app.post('/api/admin/students', requireAdmin, async (req, res) => {
+  const { name, grade, pin, interests } = req.body || {};
+  const cleanName = escapeText(name);
+  const cleanGrade = escapeText(grade) || '5. Klasse';
+  const cleanPin = escapeText(pin) || '1234';
+
+  if (!cleanName) return res.status(400).json({ error: 'Bitte einen Namen eingeben.' });
+  if (!/^\d{4}$/.test(cleanPin)) return res.status(400).json({ error: 'PIN muss 4-stellig sein.' });
+
+  const student = await createStudent({
+    name: cleanName,
+    grade: cleanGrade,
+    pin: cleanPin,
+    interests: Array.isArray(interests) ? interests : []
+  });
+
+  res.json(student);
+});
+
+app.put('/api/admin/students/:id', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  const { name, grade, pin, interests } = req.body || {};
+
+  if (!id) return res.status(400).json({ error: 'Ungültige Schüler-ID.' });
+
+  const cleanName = escapeText(name);
+  const cleanGrade = escapeText(grade) || '5. Klasse';
+  const cleanPin = escapeText(pin) || '1234';
+
+  if (!cleanName) return res.status(400).json({ error: 'Bitte einen Namen eingeben.' });
+  if (!/^\d{4}$/.test(cleanPin)) return res.status(400).json({ error: 'PIN muss 4-stellig sein.' });
+
+  const student = await updateStudent(id, {
+    name: cleanName,
+    grade: cleanGrade,
+    pin: cleanPin,
+    interests: Array.isArray(interests) ? interests : []
+  });
+
+  res.json(student);
+});
+
+app.delete('/api/admin/students/:id', requireAdmin, async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id) return res.status(400).json({ error: 'Ungültige Schüler-ID.' });
+
+  await deleteStudent(id);
+  res.json({ success: true });
 });
 
 app.post('/api/admin/students', requireAdmin, async (req, res) => {

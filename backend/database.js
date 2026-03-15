@@ -84,6 +84,28 @@ export async function createStudent({ name, grade, interests, pin }) {
   return getStudentById(result.lastID);
 }
 
+export async function updateStudent(id, { name, grade, interests, pin }) {
+  await run(
+    `UPDATE students
+     SET name = ?, grade = ?, interests = ?, pin = ?
+     WHERE id = ?`,
+    [
+      name,
+      grade || '5. Klasse',
+      JSON.stringify(interests || []),
+      pin || '1234',
+      id
+    ]
+  );
+  return getStudentById(id);
+}
+
+export async function deleteStudent(id) {
+  await run(`DELETE FROM essays WHERE student_id = ?`, [id]);
+  await run(`DELETE FROM students WHERE id = ?`, [id]);
+  return { success: true };
+}
+
 export async function getStudentById(id) {
   const row = await get(`SELECT * FROM students WHERE id = ?`, [id]);
   if (!row) return null;
@@ -97,7 +119,7 @@ export async function getStudentByNameAndPin(name, pin) {
 }
 
 export async function listAllStudentsForAdmin() {
-  const rows = await all(`SELECT id, name, grade, interests, created_at FROM students ORDER BY name ASC`);
+  const rows = await all(`SELECT id, name, grade, pin, interests, created_at FROM students ORDER BY name ASC`);
   return rows.map(r => ({ ...r, interests: safeParse(r.interests, []) }));
 }
 

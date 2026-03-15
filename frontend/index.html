@@ -47,9 +47,14 @@
         </div>
         <div id="adminPanel" hidden>
           <h3>Neuen Schüler anlegen</h3>
-          <input id="newStudentName" placeholder="Name" />
-          <input id="newStudentGrade" placeholder="Klasse, z. B. 5. Klasse" value="5. Klasse" />
-          <input id="newStudentPin" placeholder="PIN, z. B. 1234" value="1234" />
+          <label for="newStudentName">Name</label>
+<input id="newStudentName" placeholder="Name des Schülers" />
+
+<label for="newStudentGrade">Klasse</label>
+<input id="newStudentGrade" placeholder="z. B. 5. Klasse" value="5. Klasse" />
+
+<label for="newStudentPin">PIN (4-stellig)</label>
+<input id="newStudentPin" placeholder="z. B. 1234" value="1234" maxlength="4" />
           <div class="chip-row">
             <button class="chip active" data-interest="roblox">Roblox</button>
             <button class="chip" data-interest="fortnite">Fortnite</button>
@@ -62,6 +67,7 @@
           <hr />
           <label>Schüler auswählen</label>
           <select id="studentSelect"></select>
+<div id="adminStudentList" class="admin-student-list"></div>
         </div>
         <div id="studentPanel">
           <h3>Daily Quest</h3>

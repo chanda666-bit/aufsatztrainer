@@ -1,4 +1,4 @@
-:root {
+	:root {
   --bg: #07112c;
   --card: #0d1a3f;
   --card-2: #142556;
@@ -83,4 +83,46 @@ textarea { min-height: 220px; resize: vertical; }
   .app-grid, .results-grid, .login-grid, .theme-grid { grid-template-columns: 1fr; }
   .hero h1 { font-size: 52px; }
   .sidebar { position: static; }
+}
+
+.admin-student-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 16px;
+}
+
+.admin-student-card {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 16px;
+  background: rgba(255,255,255,0.04);
+}
+
+.admin-student-main {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.admin-student-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.small-action {
+  padding: 8px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,0.16);
+  background: rgba(255,255,255,0.06);
+  color: white;
+  cursor: pointer;
+}
+
+.small-action:hover {
+  background: rgba(255,255,255,0.12);
 }
