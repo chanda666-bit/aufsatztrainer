@@ -1,131 +1,146 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="de">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Aufsatztrainer V3.1 Gamer Edition</title>
+  <title>Aufsatztrainer V4</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
-  <div class="page-shell">
-    <section class="card neon hero">
+  <div class="shell">
+    <header class="hero">
       <div>
-        <span class="eyebrow">Gamer Edition</span>
-        <h1>Aufsatztrainer V3.1</h1>
-        <p>Roblox, Fortnite, Schach und Fußball als Themenwelten – mit Lernkurve, Fehlertraining und klickbarer Aufsatz-Bibliothek.</p>
+        <span class="pill">V4 Core</span>
+        <h1>Aufsatztrainer V4</h1>
+        <p>Login, Lernkurve, Daily Quests, XP und KI-Themen als Grundlage für die ganze Lernplattform.</p>
       </div>
-      <div class="hero-badges">
-        <div class="hero-pill"><span>XP</span><strong id="heroXp">0</strong></div>
-        <div class="hero-pill"><span>Level</span><strong id="heroLevel">1</strong></div>
-        <div class="hero-pill"><span>Quests</span><strong id="heroQuests">0</strong></div>
+      <div class="hero-stats" id="heroStats" hidden>
+        <span class="pill">XP <strong id="heroXp">0</strong></span>
+        <span class="pill">Level <strong id="heroLevel">1</strong></span>
+        <span class="pill">Quests <strong id="heroQuests">0</strong></span>
       </div>
+    </header>
+
+    <section class="card login-card" id="loginView">
+      <div class="login-grid">
+        <div>
+          <h2>Schüler-Login</h2>
+          <input id="loginName" placeholder="Name des Schülers" />
+          <input id="loginPin" placeholder="4-stellige PIN" maxlength="8" />
+          <button id="studentLoginBtn" class="primary">Als Schüler anmelden</button>
+        </div>
+        <div>
+          <h2>Admin-Login</h2>
+          <input id="adminPin" placeholder="Admin-PIN" maxlength="12" />
+          <button id="adminLoginBtn">Als Admin anmelden</button>
+          <p class="small">Als Admin kannst du Schüler anlegen und alle Fortschritte sehen.</p>
+        </div>
+      </div>
+      <p id="loginStatus" class="status"></p>
     </section>
 
-    <section class="grid top-grid">
-      <div class="card">
-        <h2>1. Spielerprofil</h2>
-        <div class="form-grid">
-          <input id="studentName" type="text" placeholder="Name des Schülers" />
-          <input id="studentGrade" type="text" value="5. Klasse" />
+    <section class="app-grid" id="appView" hidden>
+      <aside class="card sidebar">
+        <div class="side-head">
+          <h2 id="welcomeTitle">Willkommen</h2>
+          <button id="logoutBtn" class="ghost">Logout</button>
         </div>
-        <div class="interest-block">
-          <p class="label">Lieblingsthemen</p>
-          <div class="interest-chips" id="interestChips">
-            <button class="chip active" data-interest="roblox" type="button">Roblox</button>
-            <button class="chip" data-interest="fortnite" type="button">Fortnite</button>
-            <button class="chip" data-interest="schach" type="button">Schach</button>
-            <button class="chip" data-interest="fussball" type="button">Fußball</button>
-            <button class="chip" data-interest="fantasy" type="button">Fantasy</button>
-            <button class="chip" data-interest="schule" type="button">Schule</button>
+        <div id="adminPanel" hidden>
+          <h3>Neuen Schüler anlegen</h3>
+          <input id="newStudentName" placeholder="Name" />
+          <input id="newStudentGrade" placeholder="Klasse, z. B. 5. Klasse" value="5. Klasse" />
+          <input id="newStudentPin" placeholder="PIN, z. B. 1234" value="1234" />
+          <div class="chip-row">
+            <button class="chip active" data-interest="roblox">Roblox</button>
+            <button class="chip" data-interest="fortnite">Fortnite</button>
+            <button class="chip" data-interest="schach">Schach</button>
+            <button class="chip" data-interest="fußball">Fußball</button>
+            <button class="chip" data-interest="fantasy">Fantasy</button>
+            <button class="chip" data-interest="schule">Schule</button>
           </div>
+          <button id="createStudentBtn" class="primary small-btn">Profil anlegen</button>
+          <hr />
+          <label>Schüler auswählen</label>
+          <select id="studentSelect"></select>
         </div>
-        <button id="addStudentBtn" class="small-action">Profil anlegen</button>
-
-        <label class="label top-gap" for="studentSelect">Spieler auswählen</label>
-        <select id="studentSelect"></select>
-      </div>
-
-      <div class="card stats-card">
-        <h2>2. Lernstatus</h2>
-        <div class="stat-line"><span>Aufsätze</span><strong id="essayCount">0</strong></div>
-        <div class="stat-line"><span>Ø Punkte</span><strong id="avgPoints">0</strong></div>
-        <div class="stat-line"><span>Letzte Note</span><strong id="latestGrade">-</strong></div>
-        <div class="stat-line"><span>Trend</span><strong id="trendValue">0</strong></div>
-        <div class="xp-box">
-          <div class="xp-row"><span>Level</span><strong id="levelValue">1</strong></div>
-          <div class="progress"><div id="xpBar"></div></div>
+        <div id="studentPanel">
+          <h3>Daily Quest</h3>
+          <div class="mini-card" id="dailyQuestText">Melde dich an, um deine Tagesquest zu sehen.</div>
+          <h3>Lernstatus</h3>
+          <div class="metric"><span>Aufsätze</span><strong id="essayCount">0</strong></div>
+          <div class="metric"><span>Ø Punkte</span><strong id="avgPoints">0</strong></div>
+          <div class="metric"><span>Letzte Note</span><strong id="latestGrade">-</strong></div>
+          <div class="metric"><span>Trend</span><strong id="trendValue">0</strong></div>
+          <div class="metric"><span>Startnote</span><strong id="startGrade">-</strong></div>
+          <div class="metric"><span>Jetzt</span><strong id="currentGrade">-</strong></div>
+          <div class="metric"><span>Verbesserung</span><strong id="improvementValue">0</strong></div>
+          <div class="metric"><span>Häufigste Fehler</span><strong id="topMistakes">Noch keine Daten</strong></div>
+          <div class="xp-wrap"><div id="xpBar"></div></div>
         </div>
-        <div class="progress-grid" id="progressGrid">
-          <div class="mini-stat"><span>Startnote</span><strong id="startGrade">-</strong></div>
-          <div class="mini-stat"><span>Jetzt</span><strong id="currentGrade">-</strong></div>
-          <div class="mini-stat"><span>Verbesserung</span><strong id="improvementValue">0</strong></div>
-          <div class="mini-stat wide"><span>Häufigste Fehler</span><strong id="topMistakes">Noch keine Daten</strong></div>
-        </div>
-      </div>
-    </section>
+      </aside>
 
-    <section class="card">
-      <div class="section-head">
-        <h2>3. Themenwelt wählen</h2>
-        <button id="refreshThemesBtn" class="ghost">Neue Themen</button>
-      </div>
-      <div id="themeSuggestions" class="theme-grid"></div>
-    </section>
+      <main class="main-col">
+        <section class="card">
+          <div class="section-head">
+            <h2>Themenwelten</h2>
+            <button id="refreshThemesBtn">Neue Themen</button>
+          </div>
+          <div id="themeSuggestions" class="theme-grid"></div>
+        </section>
 
-    <section class="card">
-      <h2>4. Aufsatz-Quest</h2>
-      <div class="breadcrumbs" id="breadcrumbs">Start &gt; Quest</div>
-      <div class="form-grid single-gap">
-        <input id="essayTitle" type="text" placeholder="Titel oder Thema" />
-      </div>
-      <textarea id="essayContent" rows="10" placeholder="Hier schreibt der Schüler seinen Aufsatz..."></textarea>
-      <div class="actions">
-        <button id="checkBtn">Quest prüfen</button>
-        <button id="saveBtn" class="secondary">Quest speichern</button>
-        <button id="clearBtn" class="ghost" type="button">Quest leeren</button>
-      </div>
-      <p id="status" class="status"></p>
-    </section>
+        <section class="card">
+          <div class="section-head">
+            <h2>Aufsatz schreiben</h2>
+            <button id="clearBtn" class="ghost">Quest leeren</button>
+          </div>
+          <div id="breadcrumbs" class="crumbs">Start &gt; Quest</div>
+          <input id="essayTitle" placeholder="Titel" />
+          <textarea id="essayContent" placeholder="Hier schreibt der Schüler seinen Aufsatz..."></textarea>
+          <div class="button-row">
+            <button id="checkBtn" class="primary">Quest prüfen</button>
+            <button id="saveBtn">Quest speichern</button>
+          </div>
+          <p id="status" class="status"></p>
+        </section>
 
-    <section class="grid result-grid">
-      <div class="card">
-        <h2>Ergebnis &amp; Coach-Feedback</h2>
-        <div class="score-row">
-          <div class="score-box"><span>Punkte</span><strong id="resultPoints">-</strong></div>
-          <div class="score-box"><span>Note</span><strong id="resultGrade">-</strong></div>
-          <div class="score-box"><span>XP</span><strong id="resultXp">-</strong></div>
-        </div>
-        <p id="resultSummary">Noch keine Prüfung.</p>
-        <ul id="tipsList"></ul>
-        <div class="badges-row" id="badgeRow"></div>
-        <div class="word-box">
-          <h3>Fehlerwörter zum Üben</h3>
-          <div id="wordMistakes" class="mistake-list">Noch keine Fehlerwörter vorhanden.</div>
-        </div>
-      </div>
+        <section class="results-grid">
+          <section class="card">
+            <h2>Coach-Feedback</h2>
+            <div class="score-row">
+              <div class="score-box"><span>Punkte</span><strong id="resultPoints">-</strong></div>
+              <div class="score-box"><span>Note</span><strong id="resultGrade">-</strong></div>
+              <div class="score-box"><span>XP</span><strong id="resultXp">-</strong></div>
+            </div>
+            <p id="resultSummary">Noch keine Prüfung.</p>
+            <ul id="tipsList"></ul>
+          </section>
+          <section class="card">
+            <h2>Fehlerwörter zum Üben</h2>
+            <div id="wordMistakes" class="mistake-list">Noch keine Fehlerwörter vorhanden.</div>
+          </section>
+        </section>
 
-      <div class="card">
-        <h2>Kompakte Satz-Korrektur</h2>
-        <div id="corrections"></div>
-      </div>
-    </section>
+        <section class="card">
+          <h2>Satz-für-Satz Korrektur</h2>
+          <div id="corrections" class="correction-list"><p class="detail-empty">Noch keine Korrektur vorhanden.</p></div>
+        </section>
 
-    <section class="grid library-grid">
-      <div class="card">
-        <div class="section-head">
-          <h2>Aufsatz-Bibliothek</h2>
-          <input id="historySearch" type="text" placeholder="Titel suchen..." />
-        </div>
-        <div id="historyList"></div>
-      </div>
-
-      <div class="card detail-card">
-        <div class="breadcrumbs" id="detailBreadcrumbs">Start &gt; Bibliothek</div>
-        <div id="essayDetail" class="detail-empty">Wähle links einen gespeicherten Aufsatz aus.</div>
-      </div>
+        <section class="results-grid">
+          <section class="card">
+            <div class="section-head">
+              <h2>Aufsatzbibliothek</h2>
+              <input id="historySearch" placeholder="Aufsatz suchen" />
+            </div>
+            <div id="historyList"></div>
+          </section>
+          <section class="card">
+            <div id="detailBreadcrumbs" class="crumbs">Start &gt; Bibliothek</div>
+            <div id="essayDetail" class="detail-empty">Wähle einen Aufsatz aus.</div>
+          </section>
+        </section>
+      </main>
     </section>
   </div>
-
   <script src="app.js"></script>
 </body>
 </html>

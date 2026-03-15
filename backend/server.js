@@ -1,488 +1,346 @@
+import path from 'path';
+import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import crypto from 'crypto';
 import OpenAI from 'openai';
-import { initDb, all, get, run } from './database.js';
+import {
+  ensureSchema,
+  createStudent,
+  getStudentById,
+  getStudentByNameAndPin,
+  getEssaysByStudent,
+  getEssayById,
+  saveEssay,
+  getStatsForStudent,
+  listAllStudentsForAdmin
+} from './database.js';
 
-dotenv.config();
-initDb();
-
-const app = express();
-const port = process.env.PORT || 3000;
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-const frontendDir = path.join(__dirname, '../frontend');
 
+dotenv.config();
+ensureSchema();
+
+const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
-app.use(express.static(frontendDir));
 
-const client = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const PORT = process.env.PORT || 3000;
+const ADMIN_PIN = process.env.ADMIN_PIN || '2468';
+const openai = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null;
+const sessions = new Map();
 
-const THEME_LIBRARY = {
+function createSession(payload) {
+  const token = crypto.randomBytes(24).toString('hex');
+  sessions.set(token, { ...payload, createdAt: Date.now() });
+  return token;
+}
+
+function getSession(req) {
+  const auth = req.headers.authorization || '';
+  const token = auth.startsWith('Bearer ') ? auth.slice(7) : '';
+  return token ? sessions.get(token) : null;
+}
+
+function requireAuth(req, res, next) {
+  const session = getSession(req);
+  if (!session) return res.status(401).json({ error: 'Nicht eingeloggt.' });
+  req.session = session;
+  next();
+}
+
+function requireAdmin(req, res, next) {
+  const session = getSession(req);
+  if (!session || session.role !== 'admin') return res.status(403).json({ error: 'Nur Admin.' });
+  req.session = session;
+  next();
+}
+
+function escapeText(text) {
+  return String(text || '').trim();
+}
+
+const THEME_BANK = {
   roblox: [
     'Mein verrücktestes Roblox-Abenteuer',
     'Das geheime Portal in Roblox City',
-    'Ein Tag als Baumeister in Roblox',
-    'Das verlorene Pet im Block-Labor',
-    'Die Rettungsmission auf der Sky-Map'
+    'Ich finde einen versteckten Roblox-Server',
+    'Die Rettung meines Teams in Roblox',
+    'Ein Rätsel im Roblox-Labor'
   ],
   fortnite: [
     'Das spannendste Fortnite-Match meines Lebens',
-    'Wie mein Team in letzter Sekunde gewonnen hat',
-    'Die geheimnisvolle Insel nach dem Sturm',
-    'Ein perfekter Plan für den letzten Kreis',
-    'Als ich meinen Freund aus der Gefahr rettete'
+    'Ein geheimer Ort auf der Karte',
+    'Wie ich mein Team gerettet habe',
+    'Das letzte Duell vor dem Sieg',
+    'Ein unerwarteter Verbündeter im Match'
   ],
   schach: [
-    'Die wichtigste Partie gegen den Schulmeister',
-    'Wie ich mit einem Springer das Spiel rettete',
-    'Mein Schachturnier voller Überraschungen',
-    'Der mutige Angriff auf den schwarzen König',
-    'Mein klügster Zug in letzter Sekunde'
+    'Mein wichtigstes Schachspiel',
+    'Wie ich den König gerettet habe',
+    'Das Turnier in der Schule',
+    'Ein Zug, der alles änderte',
+    'Mein mutiger Matt-Angriff'
   ],
-  fussball: [
+  'fußball': [
     'Das entscheidende Tor im Finale',
-    'Ein chaotischer Tag beim Fußballtraining',
-    'Wie unser Team trotz Rückstand gewann',
-    'Der Regen machte das Spiel noch spannender',
-    'Mein schönster Pass im ganzen Jahr'
+    'Ein schweres Spiel im Regen',
+    'Wie unser Team zurückkam',
+    'Mein erster Treffer für die Schule',
+    'Der wichtigste Elfmeter des Jahres'
   ],
   fantasy: [
-    'Der Drache im verbotenen Wald',
-    'Die Karte zum geheimen Königreich',
-    'Mein Abenteuer mit einem magischen Schwert',
-    'Die verschwundene Krone der Nacht',
-    'Der geheimnisvolle Wächter am Fluss'
+    'Der Wald der leuchtenden Steine',
+    'Der Drache und das verlorene Buch',
+    'Meine Reise ins Wolkenschloss',
+    'Das geheime Schwert im Berg',
+    'Die Nacht der Zaubersterne'
   ],
   schule: [
-    'Mein aufregendster Schultag',
-    'Das seltsame Geräusch im Klassenraum',
-    'Wie wir als Klasse ein Problem gelöst haben',
-    'Der Tag, an dem die Lehrerin überrascht war',
-    'Ein Klassenausflug, den ich nie vergesse'
+    'Ein verrückter Schultag',
+    'Mein spannendstes Erlebnis in der Pause',
+    'Ein neuer Schüler kommt in die Klasse',
+    'Der Ausflug, den ich nie vergesse',
+    'Als der Strom in der Schule ausfiel'
   ]
 };
 
-const THEME_LABELS = {
-  roblox: 'Roblox',
-  fortnite: 'Fortnite',
-  schach: 'Schach',
-  fussball: 'Fußball',
-  fantasy: 'Fantasy',
-  schule: 'Schule'
-};
-
-function safeParseJson(value, fallback) {
-  try {
-    return JSON.parse(value || JSON.stringify(fallback));
-  } catch {
-    return fallback;
-  }
-}
-
-function normalizeEssay(row) {
-  return {
-    ...row,
-    tips: safeParseJson(row.tips, []),
-    corrections: safeParseJson(row.corrections, []),
-    mistakes: safeParseJson(row.mistakes, []),
-    wordMistakes: safeParseJson(row.word_mistakes, [])
-  };
-}
-
-function shuffle(array, seed = Date.now()) {
-  const items = [...array];
-  let currentSeed = Number(seed) || Date.now();
-  for (let i = items.length - 1; i > 0; i -= 1) {
-    currentSeed = (currentSeed * 9301 + 49297) % 233280;
-    const j = Math.floor((currentSeed / 233280) * (i + 1));
-    [items[i], items[j]] = [items[j], items[i]];
-  }
-  return items;
-}
-
-function pickThemeSuggestions(interests = [], seed = Date.now()) {
-  const keys = interests.length ? interests : ['roblox', 'fortnite', 'schach'];
-  const unique = [];
+function buildSuggestions(interests = [], seed = Date.now()) {
+  const keys = interests.length ? interests : ['roblox'];
+  const out = [];
   keys.forEach((key) => {
-    const shuffled = shuffle(THEME_LIBRARY[key] || [], seed + key.length);
-    shuffled.slice(0, 2).forEach((item) => {
-      if (!unique.includes(item)) unique.push(item);
+    const bank = THEME_BANK[key] || THEME_BANK.roblox;
+    const shuffled = [...bank].sort((a, b) => hashString(a + seed) - hashString(b + seed));
+    shuffled.slice(0, 2).forEach((title) => {
+      out.push({ key, title, label: 'Quest' });
     });
   });
-  return shuffle(unique, seed + 99).slice(0, 6);
+  return out.slice(0, 4);
 }
 
-function detectFrequentMistakes(text) {
-  const hints = [];
-  const lower = text || '';
-  if (/\b[a-zäöü][^.!?\n]*(?:\.|$)/.test(lower)) hints.push('Satzanfänge groß schreiben');
-  if ((lower.match(/\bund\b/gi) || []).length >= 3) hints.push('Lange Sätze öfter trennen');
-  if (/\b(hund|katze|park|haus|schule|mutter|ball|freund)\b/.test(lower)) hints.push('Nomen sicher großschreiben');
-  if (/\bein hund\b/gi.test(lower)) hints.push('Artikel genauer prüfen');
-  return hints.slice(0, 3);
+function hashString(value) {
+  let h = 0;
+  for (let i = 0; i < value.length; i++) h = (h << 5) - h + value.charCodeAt(i);
+  return Math.abs(h);
 }
 
-function detectWordMistakes(text) {
-  const checks = [
-    { wrong: /\bein hund\b/gi, right: 'einen Hund', rule: 'Akkusativ mit „Hund“: meistens „einen Hund“.' },
-    { wrong: /\bpark\b/g, right: 'Park', rule: 'Nomen werden großgeschrieben.' },
-    { wrong: /\bschule\b/g, right: 'Schule', rule: 'Nomen werden großgeschrieben.' },
-    { wrong: /\bhaus\b/g, right: 'Haus', rule: 'Nomen werden großgeschrieben.' },
-    { wrong: /\bmutter\b/g, right: 'Mutter', rule: 'Nomen werden großgeschrieben.' },
-    { wrong: /\bhund\b/g, right: 'Hund', rule: 'Nomen werden großgeschrieben.' },
-    { wrong: /\bfreund\b/g, right: 'Freund', rule: 'Nomen werden großgeschrieben.' },
-    { wrong: /^ich\b/m, right: 'Ich', rule: 'Am Satzanfang beginnt man groß.' }
-  ];
-
-  const found = [];
-  for (const check of checks) {
-    if (check.wrong.test(text)) {
-      found.push({ wrong: String(check.wrong).replaceAll('/', ''), right: check.right, rule: check.rule });
-    }
-  }
-
-  const cleaned = [];
-  const seen = new Set();
-  found.forEach((item) => {
-    const normalizedWrong = item.right.toLowerCase();
-    if (!seen.has(`${item.right}-${item.rule}`)) {
-      seen.add(`${item.right}-${item.rule}`);
-      cleaned.push({
-        wrong: item.right === 'Ich' ? 'ich am Satzanfang' : item.right.toLowerCase(),
-        right: item.right,
-        rule: item.rule
-      });
-    }
-  });
-  return cleaned.slice(0, 8);
+function calcGrade(points) {
+  if (points >= 18) return '1';
+  if (points >= 15) return '2';
+  if (points >= 12) return '3';
+  if (points >= 9) return '4';
+  if (points >= 5) return '5';
+  return '6';
 }
 
-function buildCorrections(rawSentences) {
-  return rawSentences.map((sentence) => {
-    let improved = sentence;
-    const reasons = [];
-
-    if (improved && /^[a-zäöü]/.test(improved)) {
-      improved = improved.charAt(0).toUpperCase() + improved.slice(1);
-      reasons.push('Satzanfang großgeschrieben');
-    }
-    if (improved && !/[.!?]$/.test(improved)) {
-      improved += '.';
-      reasons.push('Satzzeichen ergänzt');
-    }
-
-    const replacements = [
-      [/\bpark\b/g, 'Park', 'Nomen großgeschrieben'],
-      [/\bschule\b/g, 'Schule', 'Nomen großgeschrieben'],
-      [/\bhund\b/g, 'Hund', 'Nomen großgeschrieben'],
-      [/\bhaus\b/g, 'Haus', 'Nomen großgeschrieben'],
-      [/\bmutter\b/g, 'Mutter', 'Nomen großgeschrieben'],
-      [/\bfreund\b/g, 'Freund', 'Nomen großgeschrieben'],
-      [/\bich habe ein Hund\b/gi, 'Ich habe einen Hund', 'Artikel verbessert'],
-      [/\bich habe ein hund\b/gi, 'Ich habe einen Hund', 'Artikel verbessert']
-    ];
-
-    replacements.forEach(([pattern, replacement, reason]) => {
-      if (pattern.test(improved)) {
-        improved = improved.replace(pattern, replacement);
-        reasons.push(reason);
-      }
-    });
-
-    return {
-      original: sentence,
-      corrected: improved,
-      explanation: reasons.length ? reasons.join(', ') : 'Schon gut gelungen.',
-      changed: improved !== sentence
-    };
-  });
-}
-
-function offlineAnalyzeEssay(text, title = '', theme = '') {
-  const rawSentences = text
+function offlineAnalyze(text) {
+  const lines = escapeText(text)
     .split(/(?<=[.!?])\s+|\n+/)
-    .map((s) => s.trim())
+    .map(s => s.trim())
     .filter(Boolean);
 
-  const corrections = buildCorrections(rawSentences);
-  const wordMistakes = detectWordMistakes(text);
-  const frequentMistakes = detectFrequentMistakes(text);
-  const points = Math.max(8, Math.min(20, 18 - frequentMistakes.length * 2 - wordMistakes.length));
-  const gradeMap = points >= 18 ? '1' : points >= 15 ? '2' : points >= 12 ? '3' : points >= 9 ? '4' : points >= 6 ? '5' : '6';
-  const xp = Math.max(25, points * 5);
-  const level = Math.max(1, Math.floor(xp / 60));
-  const badges = [];
-  if (points >= 15) badges.push('Starker Start');
-  if (rawSentences.length >= 3) badges.push('Story-Builder');
-  if (theme) badges.push(`${THEME_LABELS[theme] || theme}-Fan`);
+  const corrections = [];
+  const wordMistakes = [];
+  const tips = [];
+  let points = 16;
+
+  const nounHints = ['schule', 'hund', 'mutter', 'park', 'haus', 'roblox', 'fortnite', 'fußball', 'schach'];
+  const replacements = [
+    ['ein hund', 'einen Hund', 'Der richtige Artikel für „Hund“ ist „einen“.'],
+    ['ein park', 'einen Park', 'Der richtige Artikel für „Park“ ist „einen“.'],
+    ['ich habe ein hund', 'Ich habe einen Hund', 'Satzanfang groß und richtiger Artikel.'],
+    ['ich war in die schule', 'Ich war in der Schule', 'Hier passt „in der Schule“ besser.']
+  ];
+
+  lines.forEach((line) => {
+    let original = line;
+    let corrected = line;
+    let explanation = 'Schon gut geschrieben.';
+    let changed = false;
+
+    if (/^[a-zäöü]/.test(corrected)) {
+      corrected = corrected.charAt(0).toUpperCase() + corrected.slice(1);
+      explanation = 'Satzanfänge werden großgeschrieben.';
+      changed = true;
+      points -= 1;
+    }
+
+    nounHints.forEach((noun) => {
+      const r = new RegExp(`\\b${noun}\\b`, 'g');
+      if (r.test(corrected) && noun !== noun.charAt(0).toUpperCase() + noun.slice(1)) {
+        corrected = corrected.replace(r, noun.charAt(0).toUpperCase() + noun.slice(1));
+        if (!wordMistakes.find(w => w.wrong === noun)) {
+          wordMistakes.push({ wrong: noun, right: noun.charAt(0).toUpperCase() + noun.slice(1), rule: 'Nomen werden großgeschrieben.' });
+        }
+        explanation = 'Nomen werden großgeschrieben.';
+        changed = true;
+      }
+    });
+
+    replacements.forEach(([wrong, right, rule]) => {
+      const r = new RegExp(wrong, 'i');
+      if (r.test(corrected)) {
+        corrected = corrected.replace(r, right);
+        wordMistakes.push({ wrong, right, rule });
+        explanation = rule;
+        changed = true;
+        points -= 1;
+      }
+    });
+
+    if (!/[.!?]$/.test(corrected)) {
+      corrected += '.';
+      explanation = 'Sätze enden meist mit einem Punkt.';
+      changed = true;
+      points -= 1;
+    }
+
+    corrections.push({ original, corrected, explanation, changed });
+  });
+
+  if (wordMistakes.length) tips.push('Übe die Wörter aus der Fehlerliste noch einmal extra.');
+  tips.push('Achte auf Großschreibung am Satzanfang.');
+  tips.push('Schreibe Nomen wie Schule, Hund oder Mutter groß.');
+
+  points = Math.max(4, Math.min(20, points));
+  const gradeText = calcGrade(points);
+  const xp = points >= 15 ? 35 : points >= 12 ? 25 : 15;
 
   return {
-    source: 'offline-fallback',
     points,
-    gradeText: gradeMap,
-    summary: `${title ? `Dein Text „${title}“` : 'Dein Text'} wurde geprüft. Du hast schon eine gute Basis. Jetzt trainieren wir gezielt deine wichtigsten Fehlerwörter und Satzanfänge.`,
-    tips: [
-      'Beginne jeden Satz mit einem großen Buchstaben.',
-      'Setze am Satzende einen Punkt oder ein anderes Satzzeichen.',
-      'Schreibe Nomen wie Hund, Park oder Schule groß.'
-    ],
+    gradeText,
+    summary: points >= 15 ? 'Starke Leistung! Dein Text ist schon klar und spannend.' : 'Guter Anfang! Mit etwas Übung wird dein Text noch sicherer.',
+    tips,
     corrections,
-    wordMistakes,
-    stats: {
-      sentenceCount: rawSentences.length,
-      wordCount: text.trim().split(/\s+/).filter(Boolean).length,
-      frequentMistakes,
-      structure: {
-        beginning: rawSentences.length >= 1 ? 1 : 0,
-        middle: rawSentences.length >= 2 ? 1 : 0,
-        ending: rawSentences.length >= 3 ? 1 : 0
-      }
-    },
+    wordMistakes: dedupeMistakes(wordMistakes),
     gamification: {
       xp,
-      level,
-      badges: badges.length ? badges : ['Weiter so']
+      badges: points >= 15 ? ['Starker Satzbau', 'Mutige Story'] : ['Weiter üben']
     }
   };
 }
 
-async function analyzeEssay(text, { title = '', theme = '', interests = [] } = {}) {
-  if (!client) return offlineAnalyzeEssay(text, title, theme);
-
-  const prompt = `Du bist ein motivierender Deutschlehrer für die 5. Klasse Gymnasium und sprichst klar, kurz und freundlich.
-Antworte NUR als JSON in diesem exakten Schema:
-{
-  "points": number,
-  "gradeText": string,
-  "summary": string,
-  "tips": [string, string, string],
-  "corrections": [
-    {"original": string, "corrected": string, "explanation": string, "changed": boolean}
-  ],
-  "wordMistakes": [
-    {"wrong": string, "right": string, "rule": string}
-  ],
-  "stats": {
-    "sentenceCount": number,
-    "wordCount": number,
-    "frequentMistakes": [string, string, string],
-    "structure": {"beginning": number, "middle": number, "ending": number}
-  },
-  "gamification": {
-    "xp": number,
-    "level": number,
-    "badges": [string, string, string]
-  }
+function dedupeMistakes(items) {
+  const seen = new Set();
+  return items.filter(item => {
+    const key = `${item.wrong}|${item.right}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
-Regeln:
-- kindgerecht und motivierend
-- Fokus auf Satzbau, Groß-/Kleinschreibung, Satzende, Wortwahl, Reihenfolge
-- points zwischen 0 und 20
-- gradeText nur 1,2,3,4,5 oder 6
-- genau 3 Tipps
-- corrections satzweise und kompakt
-- wordMistakes nur wirklich nützliche Wort- oder Artikelkorrekturen, maximal 8
-- frequentMistakes maximal 3 kurze Punkte
-- structure bewertet grob Anfang/Mitte/Ende mit 0 oder 1
-- xp zwischen 20 und 120
-- level zwischen 1 und 10
-- badges maximal 3 kurze Begriffe
-Interessen des Schülers: ${interests.join(', ') || 'keine Angabe'}
-Thema-Welt: ${theme || 'frei'}
-Titel: ${title || 'Ohne Titel'}
-Text:
-${text}`;
+
+async function analyzeEssay(text, title, interests = []) {
+  if (!openai) return offlineAnalyze(text);
 
   try {
-    const response = await client.responses.create({
+    const prompt = `Du bist ein kindgerechter Deutsch-Coach für Klasse 5. Prüfe diesen Aufsatz kurz und streng fair. Thema: ${title || 'frei'}. Interessen: ${interests.join(', ')}.
+Gib nur JSON zurück mit:
+points (0-20), gradeText, summary, tips (array), corrections (array mit original, corrected, explanation, changed), wordMistakes (array mit wrong, right, rule), gamification { xp, badges }.
+Text:\n${text}`;
+
+    const response = await openai.responses.create({
       model: 'gpt-4.1-mini',
       input: prompt
     });
-    return { source: 'openai', ...JSON.parse(response.output_text) };
+
+    const raw = response.output_text || '{}';
+    const parsed = JSON.parse(raw);
+    return {
+      points: parsed.points || 12,
+      gradeText: parsed.gradeText || calcGrade(parsed.points || 12),
+      summary: parsed.summary || 'Gute Arbeit!'
+      ,tips: parsed.tips || [],
+      corrections: parsed.corrections || [],
+      wordMistakes: parsed.wordMistakes || [],
+      gamification: parsed.gamification || { xp: 20, badges: [] }
+    };
   } catch (error) {
-    const code = error?.code || error?.status;
-    if (code === 'insufficient_quota' || error?.status === 429 || error?.message?.includes('quota')) {
-      return offlineAnalyzeEssay(text, title, theme);
-    }
-    throw error;
+    console.error(error);
+    return offlineAnalyze(text);
   }
 }
 
-app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, message: 'Aufsatztrainer V3.1 Gamer Edition läuft.' });
+app.get('/api/health', (_req, res) => res.json({ ok: true, version: '4.0.0' }));
+
+app.post('/api/login/student', async (req, res) => {
+  const { name, pin } = req.body || {};
+  const student = await getStudentByNameAndPin(escapeText(name), escapeText(pin));
+  if (!student) return res.status(401).json({ error: 'Name oder PIN falsch.' });
+  const token = createSession({ role: 'student', studentId: student.id, name: student.name });
+  res.json({ token, role: 'student', student });
 });
 
-app.get('/api/themes', (req, res) => {
-  const requested = String(req.query.interests || '')
-    .split(',')
-    .map((item) => item.trim().toLowerCase())
-    .filter(Boolean);
+app.post('/api/login/admin', (req, res) => {
+  const { pin } = req.body || {};
+  if (escapeText(pin) !== ADMIN_PIN) return res.status(401).json({ error: 'Admin-PIN falsch.' });
+  const token = createSession({ role: 'admin' });
+  res.json({ token, role: 'admin' });
+});
+
+app.get('/api/me', requireAuth, async (req, res) => {
+  if (req.session.role === 'admin') return res.json({ role: 'admin' });
+  const student = await getStudentById(req.session.studentId);
+  res.json({ role: 'student', student });
+});
+
+app.get('/api/themes', requireAuth, async (req, res) => {
+  const interests = String(req.query.interests || '').split(',').map(s => s.trim()).filter(Boolean);
   const seed = Number(req.query.seed || Date.now());
-  const suggestions = pickThemeSuggestions(requested, seed);
-  res.json({ suggestions, labels: THEME_LABELS });
+  res.json({ suggestions: buildSuggestions(interests, seed) });
 });
 
-app.get('/api/students', async (_req, res) => {
-  try {
-    const students = await all('SELECT * FROM students ORDER BY name ASC');
-    res.json(students.map((student) => ({ ...student, interests: safeParseJson(student.interests, []) })));
-  } catch {
-    res.status(500).json({ error: 'Schüler konnten nicht geladen werden.' });
-  }
+app.post('/api/check', requireAuth, async (req, res) => {
+  const { title, content, interests } = req.body || {};
+  const analysis = await analyzeEssay(content, title, interests || []);
+  res.json(analysis);
 });
 
-app.post('/api/students', async (req, res) => {
-  try {
-    const { name, grade, interests } = req.body;
-    if (!name || !name.trim()) return res.status(400).json({ error: 'Name fehlt.' });
-
-    const normalizedInterests = Array.isArray(interests)
-      ? interests.map((item) => String(item).trim().toLowerCase()).filter(Boolean)
-      : [];
-
-    const result = await run(
-      'INSERT INTO students (name, grade, interests) VALUES (?, ?, ?)',
-      [name.trim(), (grade || '5. Klasse').trim(), JSON.stringify(normalizedInterests)]
-    );
-    const student = await get('SELECT * FROM students WHERE id = ?', [result.id]);
-    res.status(201).json({ ...student, interests: safeParseJson(student.interests, []) });
-  } catch {
-    res.status(500).json({ error: 'Schüler konnte nicht angelegt werden.' });
-  }
+app.get('/api/stats', requireAuth, async (req, res) => {
+  const studentId = req.session.role === 'admin' ? Number(req.query.studentId) : req.session.studentId;
+  const stats = await getStatsForStudent(studentId);
+  res.json(stats);
 });
 
-app.get('/api/stats/:studentId', async (req, res) => {
-  try {
-    const { studentId } = req.params;
-    const stats = await get(
-      `SELECT COUNT(*) as essayCount,
-              COALESCE(ROUND(AVG(points), 1), 0) as avgPoints,
-              COALESCE(SUM(points * 5), 0) as totalXp
-       FROM essays WHERE student_id = ?`,
-      [studentId]
-    );
-
-    const latest = await get(
-      'SELECT id, title, points, grade_text, created_at, mistakes FROM essays WHERE student_id = ? ORDER BY id DESC LIMIT 1',
-      [studentId]
-    );
-
-    const firstEssay = await get(
-      'SELECT id, points, grade_text, created_at FROM essays WHERE student_id = ? ORDER BY id ASC LIMIT 1',
-      [studentId]
-    );
-
-    const recent = await all(
-      'SELECT points, grade_text FROM essays WHERE student_id = ? ORDER BY id DESC LIMIT 5',
-      [studentId]
-    );
-
-    const allMistakeRows = await all('SELECT mistakes FROM essays WHERE student_id = ?', [studentId]);
-    const mistakeCounter = {};
-    allMistakeRows.forEach((row) => {
-      safeParseJson(row.mistakes, []).forEach((item) => {
-        mistakeCounter[item] = (mistakeCounter[item] || 0) + 1;
-      });
-    });
-
-    const topMistakes = Object.entries(mistakeCounter)
-      .sort((a, b) => b[1] - a[1])
-      .slice(0, 3)
-      .map(([label]) => label);
-
-    const trend = recent.length >= 2 ? recent[0].points - recent[recent.length - 1].points : 0;
-    const improvement = firstEssay && latest ? latest.points - firstEssay.points : 0;
-    const level = Math.max(1, Math.floor((stats.totalXp || 0) / 120) + 1);
-
-    res.json({
-      ...stats,
-      latest: latest ? { ...latest, mistakes: safeParseJson(latest.mistakes, []) } : null,
-      firstEssay: firstEssay || null,
-      trend,
-      improvement,
-      level,
-      completedQuests: stats.essayCount || 0,
-      topMistakes
-    });
-  } catch {
-    res.status(500).json({ error: 'Statistik konnte nicht geladen werden.' });
-  }
+app.get('/api/essays', requireAuth, async (req, res) => {
+  const studentId = req.session.role === 'admin' ? Number(req.query.studentId) : req.session.studentId;
+  const items = await getEssaysByStudent(studentId);
+  res.json(items);
 });
 
-app.get('/api/essays/:studentId', async (req, res) => {
-  try {
-    const essays = await all(
-      'SELECT id, title, theme, points, grade_text, summary, created_at FROM essays WHERE student_id = ? ORDER BY id DESC',
-      [req.params.studentId]
-    );
-    res.json(essays);
-  } catch {
-    res.status(500).json({ error: 'Aufsätze konnten nicht geladen werden.' });
-  }
+app.get('/api/essay/:id', requireAuth, async (req, res) => {
+  const essay = await getEssayById(Number(req.params.id));
+  if (!essay) return res.status(404).json({ error: 'Nicht gefunden.' });
+  if (req.session.role !== 'admin' && essay.student_id !== req.session.studentId) return res.status(403).json({ error: 'Kein Zugriff.' });
+  res.json(essay);
 });
 
-app.get('/api/essay/:essayId', async (req, res) => {
-  try {
-    const essay = await get('SELECT * FROM essays WHERE id = ?', [req.params.essayId]);
-    if (!essay) return res.status(404).json({ error: 'Aufsatz nicht gefunden.' });
-    res.json(normalizeEssay(essay));
-  } catch {
-    res.status(500).json({ error: 'Aufsatz konnte nicht geladen werden.' });
-  }
+app.post('/api/essays', requireAuth, async (req, res) => {
+  if (req.session.role !== 'student') return res.status(403).json({ error: 'Nur Schüler können speichern.' });
+  const { title, content, theme, analysis } = req.body || {};
+  const essay = await saveEssay({ studentId: req.session.studentId, title, content, theme, analysis });
+  res.json(essay);
 });
 
-app.post('/api/correct-essay', async (req, res) => {
-  try {
-    const { title, content, theme, interests } = req.body;
-    if (!content || content.trim().length < 10) {
-      return res.status(400).json({ error: 'Der Aufsatz ist noch zu kurz.' });
-    }
-    const analysis = await analyzeEssay(content.trim(), { title, theme, interests });
-    res.json(analysis);
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ error: 'Korrektur fehlgeschlagen.' });
-  }
+app.get('/api/admin/students', requireAdmin, async (_req, res) => {
+  const rows = await listAllStudentsForAdmin();
+  res.json(rows);
 });
 
-app.post('/api/essays', async (req, res) => {
-  try {
-    const { studentId, title, theme, content, analysis } = req.body;
-    if (!studentId || !content) return res.status(400).json({ error: 'Daten fehlen.' });
-
-    const result = await run(
-      `INSERT INTO essays (student_id, title, theme, content, points, grade_text, summary, tips, corrections, mistakes, word_mistakes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        studentId,
-        title || 'Ohne Titel',
-        theme || '',
-        content,
-        analysis?.points ?? 0,
-        analysis?.gradeText ?? '-',
-        analysis?.summary ?? '',
-        JSON.stringify(analysis?.tips || []),
-        JSON.stringify(analysis?.corrections || []),
-        JSON.stringify(analysis?.stats?.frequentMistakes || []),
-        JSON.stringify(analysis?.wordMistakes || [])
-      ]
-    );
-
-    const essay = await get('SELECT * FROM essays WHERE id = ?', [result.id]);
-    res.status(201).json(normalizeEssay(essay));
-  } catch {
-    res.status(500).json({ error: 'Aufsatz konnte nicht gespeichert werden.' });
-  }
+app.post('/api/admin/students', requireAdmin, async (req, res) => {
+  const { name, grade, interests, pin } = req.body || {};
+  const student = await createStudent({ name, grade, interests, pin });
+  res.json(student);
 });
 
-app.get('*', (_req, res) => {
-  res.sendFile(path.join(frontendDir, 'index.html'));
+app.use(express.static(path.join(__dirname, '../frontend')));
+
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '../frontend/index.html'));
 });
 
-app.listen(port, () => {
-  console.log(`Aufsatztrainer V3.1 Gamer Edition läuft auf http://localhost:${port}`);
+app.listen(PORT, () => {
+  console.log(`Aufsatztrainer V4 läuft auf http://localhost:${PORT}`);
 });
